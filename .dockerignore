@@ -1,0 +1,37 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Development and test files
+tests/
+.hypothesis/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Infrastructure (not needed in container)
+terraform/
+.github/
+
+# Spec files
+.kiro/
+
+# Environment files (secrets must not be baked in)
+.env
+*.env
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+README*
+
+# IDE
+.vscode/
+.idea/
