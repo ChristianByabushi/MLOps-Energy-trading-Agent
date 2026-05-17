@@ -1,6 +1,9 @@
 # Kiro specs (requirements, tasks, design docs — internal tooling only)
 .kiro/
 
+# Private interview preparation notes
+INTERVIEW_PREP.md
+
 # Python
 __pycache__/
 *.py[cod]
