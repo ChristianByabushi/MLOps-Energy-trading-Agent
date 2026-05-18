@@ -75,19 +75,27 @@ jobs:
     needs: test  # Only deploy if tests pass
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
+    # permissions block only needed for OIDC — kept here for future upgrade
     permissions:
-      id-token: write   # Required for OIDC authentication with AWS
+      id-token: write
       contents: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          # Option A (current): static keys stored as GitHub Secrets
+          # Add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in:
+          # GitHub repo → Settings → Secrets and variables → Actions
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+          # Option B (recommended for production): OIDC — no long-lived keys
+          # Replace the three lines above with:
+          #   role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
       - name: Login to Amazon ECR
         id: login-ecr

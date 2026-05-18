@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import ssl
 import time
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import httpx
@@ -160,14 +162,142 @@ class AlertService:
     # ------------------------------------------------------------------
 
     def _do_send_email(self, message: AlertMessage) -> None:
-        """Single attempt to send an email via SMTP."""
-        msg = MIMEText(message.body)
-        msg["Subject"] = message.subject
-        msg["From"] = self.smtp_user
-        msg["To"] = self.alert_email_to
+        """Single attempt to send an HTML+plain email via SMTP."""
+        s = message.snapshot
+        threshold = message.threshold
 
-        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-            server.starttls()
-            if self.smtp_user and self.smtp_password:
-                server.login(self.smtp_user, self.smtp_password)
-            server.sendmail(self.smtp_user, [self.alert_email_to], msg.as_string())
+        # ── plain-text fallback ───────────────────────────────────────────────
+        plain = (
+            f"ENERGY TRADING ALERT\n"
+            f"{'='*40}\n\n"
+            f"Spot Price : {s.spot_price_eur_mwh:.2f} EUR/MWh\n"
+            f"Threshold  : {threshold:.2f} EUR/MWh\n"
+            f"Demand     : {s.demand_mw:,.0f} MW\n"
+            f"Wind Prod. : {s.wind_production_mw:,.0f} MW\n"
+            f"Wind Ratio : {s.wind_ratio:.1%}\n\n"
+            f"AI Rationale:\n{message.body}\n\n"
+            f"Sent by the MLOps Energy Trading Agent."
+        )
+
+        # ── HTML version ──────────────────────────────────────────────────────
+        price_colour = "#e74c3c" if s.spot_price_eur_mwh < threshold else "#27ae60"
+        html = f"""
+<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;background:#f4f4f4;padding:20px;margin:0;">
+  <div style="max-width:520px;margin:auto;background:#fff;border-radius:8px;
+              box-shadow:0 2px 8px rgba(0,0,0,0.1);overflow:hidden;">
+
+    <!-- header -->
+    <div style="background:#1a1a2e;padding:24px 28px;">
+      <h1 style="color:#e94560;margin:0;font-size:22px;">
+        ⚡ Energy Price Alert
+      </h1>
+      <p style="color:#aaa;margin:6px 0 0;font-size:13px;">
+        MLOps Energy Trading Agent
+      </p>
+    </div>
+
+    <!-- price highlight -->
+    <div style="padding:24px 28px 12px;">
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="padding:10px 14px;background:#fef9f0;border-radius:6px;
+                     border-left:4px solid {price_colour};">
+            <span style="font-size:13px;color:#888;">Spot Price</span><br>
+            <span style="font-size:28px;font-weight:bold;color:{price_colour};">
+              {s.spot_price_eur_mwh:.2f} EUR/MWh
+            </span>
+          </td>
+          <td style="width:16px;"></td>
+          <td style="padding:10px 14px;background:#f8f8f8;border-radius:6px;">
+            <span style="font-size:13px;color:#888;">Alert Threshold</span><br>
+            <span style="font-size:22px;font-weight:bold;color:#555;">
+              {threshold:.2f} EUR/MWh
+            </span>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- market data -->
+    <div style="padding:12px 28px;">
+      <h3 style="color:#333;font-size:14px;margin:0 0 10px;
+                 text-transform:uppercase;letter-spacing:1px;">
+        Market Data
+      </h3>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <tr style="background:#f8f8f8;">
+          <td style="padding:8px 12px;color:#555;">Electricity Demand</td>
+          <td style="padding:8px 12px;font-weight:bold;text-align:right;">
+            {s.demand_mw:,.0f} MW
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 12px;color:#555;">Wind Production</td>
+          <td style="padding:8px 12px;font-weight:bold;text-align:right;">
+            {s.wind_production_mw:,.0f} MW
+          </td>
+        </tr>
+        <tr style="background:#f8f8f8;">
+          <td style="padding:8px 12px;color:#555;">Wind / Demand Ratio</td>
+          <td style="padding:8px 12px;font-weight:bold;text-align:right;">
+            {s.wind_ratio:.1%}
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- AI rationale -->
+    <div style="padding:12px 28px 24px;">
+      <h3 style="color:#333;font-size:14px;margin:0 0 10px;
+                 text-transform:uppercase;letter-spacing:1px;">
+        AI Reasoning
+      </h3>
+      <p style="background:#f0f4ff;border-left:4px solid #3498db;
+                padding:12px 16px;border-radius:4px;
+                color:#333;font-size:14px;line-height:1.6;margin:0;">
+        {message.body}
+      </p>
+    </div>
+
+    <!-- footer -->
+    <div style="background:#f4f4f4;padding:14px 28px;text-align:center;">
+      <p style="color:#aaa;font-size:12px;margin:0;">
+        Sent automatically by the MLOps Energy Trading Agent
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>
+"""
+
+        # ── assemble MIME message ─────────────────────────────────────────────
+        mime = MIMEMultipart("alternative")
+        mime["Subject"] = message.subject
+        mime["From"]    = self.smtp_user
+        mime["To"]      = self.alert_email_to
+        mime.attach(MIMEText(plain, "plain", "utf-8"))
+        mime.attach(MIMEText(html,  "html",  "utf-8"))
+
+        logger.info("Sending email to %s via %s:%s",
+                    self.alert_email_to, self.smtp_host, self.smtp_port)
+
+        if self.smtp_port == 465:
+            ctx = ssl.create_default_context()
+            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port,
+                                   context=ctx, timeout=15) as server:
+                if self.smtp_user and self.smtp_password:
+                    server.login(self.smtp_user, self.smtp_password)
+                server.sendmail(self.smtp_user, [self.alert_email_to], mime.as_string())
+        else:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
+                if self.smtp_user and self.smtp_password:
+                    server.login(self.smtp_user, self.smtp_password)
+                server.sendmail(self.smtp_user, [self.alert_email_to], mime.as_string())
+
+        logger.info("Email sent successfully to %s", self.alert_email_to)

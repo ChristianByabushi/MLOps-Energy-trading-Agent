@@ -7,11 +7,15 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+import openai
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
+from agent.alert import AlertService
 from agent.config import AgentConfig
 from agent.dispatcher import ActionDispatcher
+from agent.logger import DecisionLogger
 from agent.models import (
     ActionType,
     AgentRunResult,
@@ -50,23 +54,52 @@ class ReActAgent:
     ) -> None:
         self.config = config or AgentConfig()
         self.perceiver = perceiver or MarketPerceiver(csv_path=self.config.csv_path)
-        self.dispatcher = dispatcher or ActionDispatcher(
-            alert_threshold=self.config.alert_threshold
-        )
+
+        # Build a fully-configured AlertService and DecisionLogger from config
+        # so SMTP credentials, S3 bucket, etc. are all wired in automatically.
+        if dispatcher is None:
+            alert_service = AlertService(
+                slack_webhook_url=self.config.slack_webhook_url,
+                smtp_host=self.config.smtp_host,
+                smtp_port=self.config.smtp_port,
+                smtp_user=self.config.smtp_user,
+                smtp_password=self.config.smtp_password,
+                alert_email_to=self.config.alert_email_to,
+            )
+            decision_logger = DecisionLogger(
+                bucket_name=self.config.s3_bucket_name,
+                aws_region=self.config.aws_region,
+                aws_access_key_id=self.config.aws_access_key_id,
+                aws_secret_access_key=self.config.aws_secret_access_key,
+            )
+            dispatcher = ActionDispatcher(
+                decision_logger=decision_logger,
+                alert_service=alert_service,
+                alert_threshold=self.config.alert_threshold,
+            )
+        self.dispatcher = dispatcher
         self._pydantic_agent = pydantic_agent
 
     @property
     def agent(self) -> Agent:
         """Lazy-initialise the PydanticAI Agent."""
         if self._pydantic_agent is None:
-            model = OpenAIModel(
-                self.config.openai_model,
-                api_key=self.config.openai_api_key or "sk-placeholder",
-            )
+            # OpenAIProvider accepts base_url + api_key directly, or a
+            # pre-built AsyncOpenAI client — works with any OpenAI-compatible
+            # gateway such as the CMU AI Gateway.
+            provider_kwargs: dict = {
+                "api_key": self.config.openai_api_key or "sk-placeholder",
+            }
+            if self.config.openai_base_url:
+                provider_kwargs["base_url"] = self.config.openai_base_url
+
+            provider = OpenAIProvider(**provider_kwargs)
+            model = OpenAIChatModel(self.config.openai_model, provider=provider)
+
             self._pydantic_agent = Agent(
                 model=model,
-                result_type=TradeDecision,
-                system_prompt=(
+                output_type=TradeDecision,
+                instructions=(
                     "You are an energy trading analyst. "
                     "Given market data, reason about price stability and return a structured "
                     "trade decision as JSON. "
@@ -164,7 +197,7 @@ class ReActAgent:
         for attempt in range(_MAX_LLM_RETRIES):
             try:
                 result = await self.agent.run(prompt)
-                decision: TradeDecision = result.data
+                decision: TradeDecision = result.output
                 # Inject the snapshot into the decision (LLM may not include it)
                 if decision.snapshot is None or decision.snapshot != snapshot:
                     decision = decision.model_copy(update={"snapshot": snapshot})

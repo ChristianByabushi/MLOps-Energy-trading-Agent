@@ -1,0 +1,10 @@
+Energy Trading Agent — Reactive Demo Log
+Started  : 2026-05-18 08:27:36
+Threshold: 50 EUR/MWh  (ALERT + email if price < threshold)
+══════════════════════════════════════════════════════════════
+
+[2026-05-18 08:28:10]  Cycle #1
+  Market  : 28.00 EUR/MWh  |  Demand 44,600 MW  |  Wind 30,800 MW (69.1%)
+  Decision: SELL / TRADE  (confidence 85%)  ← ALERT + EMAIL SENT  ← TRADE EXECUTED
+  Reason  : High wind production relative to demand likely puts downward pressure on prices, spot price is moderately low, suggesting a selling opportunity before potential further decrease.
+  ────────────────────────────────────────────────────────────

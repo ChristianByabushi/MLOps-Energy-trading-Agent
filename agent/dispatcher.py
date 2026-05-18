@@ -54,7 +54,10 @@ class ActionDispatcher:
     def dispatch(self, decision: TradeDecision) -> ActionResult:
         """Route a TradeDecision to the appropriate action handlers.
 
-        Logging is unconditional. Trading and alerting are conditional on action type.
+        Logging is unconditional.
+        Price-threshold alerting is unconditional — fires whenever
+        spot_price < alert_threshold regardless of the LLM's action choice.
+        Trading is conditional on the LLM choosing ActionType.TRADE.
 
         Args:
             decision: The trade decision to dispatch.
@@ -74,7 +77,18 @@ class ActionDispatcher:
             logger.error("Failed to log decision %s: %s", decision.id, exc)
             result.logged = False
 
-        # Step 2: Conditional actions based on action type
+        # Step 2: Price-threshold alert — fires unconditionally when price < threshold
+        # This is independent of the LLM's action choice.
+        if self.alert_service.should_alert(decision.snapshot, self.alert_threshold):
+            logger.info(
+                "Price %.2f < threshold %.2f — sending alert email.",
+                decision.snapshot.spot_price_eur_mwh,
+                self.alert_threshold,
+            )
+            self.trigger_alert(decision.snapshot, decision.rationale)
+            result.alert_sent = True
+
+        # Step 3: Execute mock trade only when LLM explicitly chose TRADE
         if decision.action == ActionType.TRADE:
             trade_result = self.execute_mock_trade(decision.signal)
             result.trade_executed = True
@@ -85,12 +99,6 @@ class ActionDispatcher:
                 trade_result.order_id,
             )
 
-        elif decision.action == ActionType.ALERT:
-            self.trigger_alert(decision.snapshot, decision.rationale)
-            result.alert_sent = True
-            logger.info("Alert triggered for decision %s.", decision.id)
-
-        # ActionType.LOG: only logging, no trade or alert
         return result
 
     def execute_mock_trade(self, signal: TradeSignal) -> TradeResult:
@@ -131,3 +139,6 @@ class ActionDispatcher:
             channel="slack",
         )
         self.alert_service.send_slack(message)
+        # Also send email if configured (channel field is informational only)
+        message_email = message.model_copy(update={"channel": "email"})
+        self.alert_service.send_email(message_email)

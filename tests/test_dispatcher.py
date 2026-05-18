@@ -107,7 +107,6 @@ def test_dispatch_always_calls_logger_for_alert_action():
 # dispatch — conditional trade
 # ---------------------------------------------------------------------------
 
-
 def test_dispatch_calls_execute_mock_trade_for_trade_decision():
     """Test dispatch calls execute_mock_trade only for TRADE decisions."""
     mock_logger = MagicMock(spec=DecisionLogger)
@@ -154,32 +153,100 @@ def test_dispatch_does_not_call_trade_for_alert_decision():
     mock_trade.assert_not_called()
     assert result.trade_executed is False
 
+# ---------------------------------------------------------------------------
+# dispatch — price-threshold alert (fires unconditionally when price < threshold)
+# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# dispatch — conditional alert
-# ---------------------------------------------------------------------------
+
+def make_low_price_decision(action: ActionType = ActionType.LOG,
+                             signal: TradeSignal = TradeSignal.HOLD) -> TradeDecision:
+    """Decision with price=28.0, well below the default threshold of 50.0."""
+    return TradeDecision(
+        timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+        snapshot=make_snapshot(price=28.0),
+        action=action,
+        signal=signal,
+        rationale="Market conditions are stable, holding position.",
+        confidence=0.75,
+    )
+
+
+def make_high_price_decision(action: ActionType = ActionType.LOG,
+                              signal: TradeSignal = TradeSignal.HOLD) -> TradeDecision:
+    """Decision with price=80.0, above the default threshold of 50.0."""
+    return TradeDecision(
+        timestamp=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+        snapshot=make_snapshot(price=80.0),
+        action=action,
+        signal=signal,
+        rationale="Market conditions are stable, holding position.",
+        confidence=0.75,
+    )
+
+
+def test_dispatch_sends_alert_when_price_below_threshold():
+    """Alert fires when price < threshold, regardless of LLM action type."""
+    mock_logger = MagicMock(spec=DecisionLogger)
+    mock_alert = MagicMock(spec=AlertService)
+    mock_alert.should_alert.return_value = True
+
+    decision = make_low_price_decision(ActionType.TRADE)  # LLM chose TRADE, not ALERT
+    mock_logger.log.return_value = make_log_entry(decision)
+
+    dispatcher = ActionDispatcher(
+        decision_logger=mock_logger,
+        alert_service=mock_alert,
+        alert_threshold=50.0,
+    )
+    result = dispatcher.dispatch(decision)
+
+    mock_alert.should_alert.assert_called_once()
+    assert result.alert_sent is True
+
+
+def test_dispatch_does_not_alert_when_price_above_threshold():
+    """No alert when price >= threshold, even if LLM chose ALERT action."""
+    mock_logger = MagicMock(spec=DecisionLogger)
+    mock_alert = MagicMock(spec=AlertService)
+    mock_alert.should_alert.return_value = False
+
+    decision = make_high_price_decision(ActionType.ALERT)  # LLM chose ALERT but price is high
+    mock_logger.log.return_value = make_log_entry(decision)
+
+    dispatcher = ActionDispatcher(
+        decision_logger=mock_logger,
+        alert_service=mock_alert,
+        alert_threshold=50.0,
+    )
+    result = dispatcher.dispatch(decision)
+
+    mock_alert.should_alert.assert_called_once()
+    assert result.alert_sent is False
 
 
 def test_dispatch_calls_alert_service_for_alert_decision():
-    """Test dispatch calls AlertService only for ALERT decisions."""
+    """Alert fires when price is below threshold (action type is irrelevant)."""
     mock_logger = MagicMock(spec=DecisionLogger)
     mock_alert = MagicMock(spec=AlertService)
-    decision = make_decision(ActionType.ALERT)
+    mock_alert.should_alert.return_value = True
+
+    decision = make_low_price_decision(ActionType.ALERT)
     mock_logger.log.return_value = make_log_entry(decision)
 
     dispatcher = ActionDispatcher(decision_logger=mock_logger, alert_service=mock_alert)
     result = dispatcher.dispatch(decision)
 
-    mock_alert.send_slack.assert_called_once()
     assert result.alert_sent is True
     assert result.trade_executed is False
 
 
 def test_dispatch_does_not_call_alert_for_log_decision():
-    """Test dispatch does not call AlertService for LOG decisions."""
+    """No alert when price is above threshold, even for LOG action."""
     mock_logger = MagicMock(spec=DecisionLogger)
     mock_alert = MagicMock(spec=AlertService)
-    decision = make_decision(ActionType.LOG)
+    mock_alert.should_alert.return_value = False
+
+    decision = make_high_price_decision(ActionType.LOG)
     mock_logger.log.return_value = make_log_entry(decision)
 
     dispatcher = ActionDispatcher(decision_logger=mock_logger, alert_service=mock_alert)
@@ -191,10 +258,12 @@ def test_dispatch_does_not_call_alert_for_log_decision():
 
 
 def test_dispatch_does_not_call_alert_for_trade_decision():
-    """Test dispatch does not call AlertService for TRADE decisions."""
+    """No alert when price is above threshold, even for TRADE action."""
     mock_logger = MagicMock(spec=DecisionLogger)
     mock_alert = MagicMock(spec=AlertService)
-    decision = make_decision(ActionType.TRADE, TradeSignal.SELL)
+    mock_alert.should_alert.return_value = False
+
+    decision = make_high_price_decision(ActionType.TRADE, TradeSignal.SELL)
     mock_logger.log.return_value = make_log_entry(decision)
 
     dispatcher = ActionDispatcher(decision_logger=mock_logger, alert_service=mock_alert)
@@ -211,13 +280,16 @@ def test_dispatch_does_not_call_alert_for_trade_decision():
 
 
 def test_dispatch_action_result_for_log_decision():
-    """Test ActionResult accurately reflects LOG decision: logged=True, no trade, no alert."""
+    """LOG decision with high price: logged=True, no trade, no alert."""
     mock_logger = MagicMock(spec=DecisionLogger)
-    decision = make_decision(ActionType.LOG)
+    mock_alert = MagicMock(spec=AlertService)
+    mock_alert.should_alert.return_value = False
+
+    decision = make_high_price_decision(ActionType.LOG)
     log_entry = make_log_entry(decision)
     mock_logger.log.return_value = log_entry
 
-    dispatcher = ActionDispatcher(decision_logger=mock_logger)
+    dispatcher = ActionDispatcher(decision_logger=mock_logger, alert_service=mock_alert)
     result = dispatcher.dispatch(decision)
 
     assert result.logged is True
@@ -227,13 +299,16 @@ def test_dispatch_action_result_for_log_decision():
 
 
 def test_dispatch_action_result_for_trade_decision():
-    """Test ActionResult accurately reflects TRADE decision: logged=True, trade=True, no alert."""
+    """TRADE decision with high price: logged=True, trade=True, no alert."""
     mock_logger = MagicMock(spec=DecisionLogger)
-    decision = make_decision(ActionType.TRADE, TradeSignal.BUY)
+    mock_alert = MagicMock(spec=AlertService)
+    mock_alert.should_alert.return_value = False
+
+    decision = make_high_price_decision(ActionType.TRADE, TradeSignal.BUY)
     log_entry = make_log_entry(decision)
     mock_logger.log.return_value = log_entry
 
-    dispatcher = ActionDispatcher(decision_logger=mock_logger)
+    dispatcher = ActionDispatcher(decision_logger=mock_logger, alert_service=mock_alert)
     result = dispatcher.dispatch(decision)
 
     assert result.logged is True
@@ -243,10 +318,12 @@ def test_dispatch_action_result_for_trade_decision():
 
 
 def test_dispatch_action_result_for_alert_decision():
-    """Test ActionResult accurately reflects ALERT decision: logged=True, no trade, alert=True."""
+    """Low price: logged=True, no trade, alert=True regardless of action type."""
     mock_logger = MagicMock(spec=DecisionLogger)
     mock_alert = MagicMock(spec=AlertService)
-    decision = make_decision(ActionType.ALERT)
+    mock_alert.should_alert.return_value = True
+
+    decision = make_low_price_decision(ActionType.LOG)
     log_entry = make_log_entry(decision)
     mock_logger.log.return_value = log_entry
 

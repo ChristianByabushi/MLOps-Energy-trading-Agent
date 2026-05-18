@@ -31,16 +31,24 @@ class DecisionLogger:
         bucket_name: str | None = None,
         s3_client=None,
         aws_region: str = "eu-central-1",
+        aws_access_key_id: str = "",
+        aws_secret_access_key: str = "",
     ) -> None:
         self.bucket_name = bucket_name or os.environ.get("S3_BUCKET_NAME", "trading-logs")
         self._s3_client = s3_client
         self.aws_region = aws_region
+        self._aws_access_key_id = aws_access_key_id
+        self._aws_secret_access_key = aws_secret_access_key
 
     @property
     def s3_client(self):
-        """Lazy-initialise the boto3 S3 client."""
+        """Lazy-initialise the boto3 S3 client, using explicit credentials if provided."""
         if self._s3_client is None:
-            self._s3_client = boto3.client("s3", region_name=self.aws_region)
+            kwargs: dict = {"region_name": self.aws_region}
+            if self._aws_access_key_id and self._aws_secret_access_key:
+                kwargs["aws_access_key_id"]     = self._aws_access_key_id
+                kwargs["aws_secret_access_key"] = self._aws_secret_access_key
+            self._s3_client = boto3.client("s3", **kwargs)
         return self._s3_client
 
     # ------------------------------------------------------------------

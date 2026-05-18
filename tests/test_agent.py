@@ -90,7 +90,7 @@ async def test_run_cycle_calls_perceive_then_reason_then_act():
 
     # Mock the PydanticAI agent
     mock_pydantic_result = MagicMock()
-    mock_pydantic_result.data = decision
+    mock_pydantic_result.output = decision
     mock_pydantic_agent = MagicMock()
     mock_pydantic_agent.run = AsyncMock(
         side_effect=lambda prompt: (call_order.append("reason"), mock_pydantic_result)[1]
@@ -127,7 +127,7 @@ async def test_run_cycle_returns_agent_run_result_with_correct_flags():
     mock_dispatcher.dispatch.return_value = action_result
 
     mock_pydantic_result = MagicMock()
-    mock_pydantic_result.data = decision
+    mock_pydantic_result.output = decision
     mock_pydantic_agent = MagicMock()
     mock_pydantic_agent.run = AsyncMock(return_value=mock_pydantic_result)
 
@@ -163,7 +163,7 @@ async def test_run_cycle_records_started_at_and_completed_at():
     mock_dispatcher.dispatch.return_value = action_result
 
     mock_pydantic_result = MagicMock()
-    mock_pydantic_result.data = decision
+    mock_pydantic_result.output = decision
     mock_pydantic_agent = MagicMock()
     mock_pydantic_agent.run = AsyncMock(return_value=mock_pydantic_result)
 

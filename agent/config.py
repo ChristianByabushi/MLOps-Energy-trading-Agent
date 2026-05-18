@@ -31,12 +31,21 @@ class AgentConfig(BaseSettings):
         description="S3 bucket name for decision logs",
     )
     aws_region: str = Field(default="eu-central-1", description="AWS region")
+    aws_access_key_id: str = Field(
+        default="",
+        description="AWS access key ID (leave empty to use ~/.aws/credentials or IAM role)",
+    )
+    aws_secret_access_key: str = Field(
+        default="",
+        description="AWS secret access key (leave empty to use ~/.aws/credentials or IAM role)",
+    )
 
     # Alerting
     alert_threshold: float = Field(
         default=50.0,
         description="Price threshold in EUR/MWh below which alerts are sent",
     )
+
     slack_webhook_url: str = Field(
         default="",
         description="Slack incoming webhook URL (empty = disabled)",
@@ -56,8 +65,15 @@ class AgentConfig(BaseSettings):
         description="OpenAI API key for the LLM reasoning step",
     )
     openai_model: str = Field(
-        default="gpt-4o-mini",
+        default="gpt-4.1-mini",
         description="OpenAI model name",
+    )
+    openai_base_url: str = Field(
+        default="",
+        description=(
+            "Custom OpenAI-compatible base URL (e.g. CMU AI Gateway). "
+            "Leave empty to use the default OpenAI endpoint."
+        ),
     )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
