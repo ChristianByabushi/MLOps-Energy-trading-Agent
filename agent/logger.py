@@ -30,7 +30,7 @@ class DecisionLogger:
         self,
         bucket_name: str | None = None,
         s3_client=None,
-        aws_region: str = "eu-central-1",
+        aws_region: str = "us-east-1",
         aws_access_key_id: str = "",
         aws_secret_access_key: str = "",
     ) -> None:

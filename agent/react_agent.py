@@ -68,7 +68,7 @@ class ReActAgent:
             )
             decision_logger = DecisionLogger(
                 bucket_name=self.config.s3_bucket_name,
-                aws_region=self.config.aws_region,
+                aws_region=self.config.app_aws_region,
                 aws_access_key_id=self.config.aws_access_key_id,
                 aws_secret_access_key=self.config.aws_secret_access_key,
             )

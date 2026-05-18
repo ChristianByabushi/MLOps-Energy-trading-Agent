@@ -30,14 +30,17 @@ class AgentConfig(BaseSettings):
         default="trading-logs",
         description="S3 bucket name for decision logs",
     )
-    aws_region: str = Field(default="us-east-1", description="AWS region")
+    app_aws_region: str = Field(
+        default="us-east-1",
+        description="AWS region (use APP_AWS_REGION — AWS_REGION is reserved by Lambda)",
+    )
     aws_access_key_id: str = Field(
         default="",
-        description="AWS access key ID (leave empty to use ~/.aws/credentials or IAM role)",
+        description="AWS access key ID (leave empty to use IAM role in Lambda)",
     )
     aws_secret_access_key: str = Field(
         default="",
-        description="AWS secret access key (leave empty to use ~/.aws/credentials or IAM role)",
+        description="AWS secret access key (leave empty to use IAM role in Lambda)",
     )
 
     # Alerting
