@@ -170,21 +170,37 @@ def test_fetch_smard_snapshot_raises_on_http_error():
 
 
 def test_fetch_smard_snapshot_succeeds_on_valid_response():
-    """Test fetch_smard_snapshot returns SMARDSnapshot on valid API response."""
-    demand_response = MagicMock()
-    demand_response.raise_for_status.return_value = None
-    demand_response.json.return_value = {
+    """Test fetch_smard_snapshot returns SMARDSnapshot on valid API response.
+
+    The new two-step API: index file → data file, so each series needs 2 GET calls.
+    Order: demand_index, demand_data, wind_index, wind_data.
+    """
+    # demand index
+    demand_index = MagicMock()
+    demand_index.raise_for_status.return_value = None
+    demand_index.json.return_value = {"timestamps": [1705276800000]}
+
+    # demand data
+    demand_data = MagicMock()
+    demand_data.raise_for_status.return_value = None
+    demand_data.json.return_value = {
         "series": [[1705276800000, 52000.0], [1705280400000, 51500.0]]
     }
 
-    wind_response = MagicMock()
-    wind_response.raise_for_status.return_value = None
-    wind_response.json.return_value = {
+    # wind index
+    wind_index = MagicMock()
+    wind_index.raise_for_status.return_value = None
+    wind_index.json.return_value = {"timestamps": [1705276800000]}
+
+    # wind data
+    wind_data = MagicMock()
+    wind_data.raise_for_status.return_value = None
+    wind_data.json.return_value = {
         "series": [[1705276800000, 14000.0], [1705280400000, 14500.0]]
     }
 
     mock_client = MagicMock(spec=httpx.Client)
-    mock_client.get.side_effect = [demand_response, wind_response]
+    mock_client.get.side_effect = [demand_index, demand_data, wind_index, wind_data]
 
     perceiver = MarketPerceiver(http_client=mock_client)
     snapshot = perceiver.fetch_smard_snapshot()
@@ -196,23 +212,31 @@ def test_fetch_smard_snapshot_succeeds_on_valid_response():
 
 def test_fetch_smard_snapshot_skips_null_values():
     """Test fetch_smard_snapshot skips null values and uses the most recent non-null."""
-    demand_response = MagicMock()
-    demand_response.raise_for_status.return_value = None
-    demand_response.json.return_value = {
+    demand_index = MagicMock()
+    demand_index.raise_for_status.return_value = None
+    demand_index.json.return_value = {"timestamps": [1705276800000]}
+
+    demand_data = MagicMock()
+    demand_data.raise_for_status.return_value = None
+    demand_data.json.return_value = {
         "series": [[1705276800000, 52000.0], [1705280400000, None]]
     }
 
-    wind_response = MagicMock()
-    wind_response.raise_for_status.return_value = None
-    wind_response.json.return_value = {
+    wind_index = MagicMock()
+    wind_index.raise_for_status.return_value = None
+    wind_index.json.return_value = {"timestamps": [1705276800000]}
+
+    wind_data = MagicMock()
+    wind_data.raise_for_status.return_value = None
+    wind_data.json.return_value = {
         "series": [[1705276800000, 14000.0], [1705280400000, None]]
     }
 
     mock_client = MagicMock(spec=httpx.Client)
-    mock_client.get.side_effect = [demand_response, wind_response]
+    mock_client.get.side_effect = [demand_index, demand_data, wind_index, wind_data]
 
     perceiver = MarketPerceiver(http_client=mock_client)
     snapshot = perceiver.fetch_smard_snapshot()
 
-    assert snapshot.demand_mw == 52000.0  # falls back to previous non-null
+    assert snapshot.demand_mw == 52000.0       # falls back to previous non-null
     assert snapshot.wind_production_mw == 14000.0

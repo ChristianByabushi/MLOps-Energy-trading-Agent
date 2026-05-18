@@ -179,6 +179,10 @@ class MarketPerceiver:
     def _fetch_smard_series(self, client: httpx.Client, index: int) -> float:
         """Fetch the latest value for a single SMARD data series.
 
+        SMARD API uses a two-step pattern:
+          1. GET /chart_data/{index}/{region}/index_hour.json  → list of week timestamps
+          2. GET /chart_data/{index}/{region}/{index}_{region}_hour_{ts}.json → series data
+
         Args:
             client: httpx.Client to use for the request.
             index: SMARD series index (e.g. 410 for demand).
@@ -187,27 +191,40 @@ class MarketPerceiver:
             The most recent non-null value in MW.
 
         Raises:
-            httpx.HTTPError: On network or HTTP errors.
             PerceptionError: If the response is malformed or contains no data.
         """
-        # SMARD chart_data endpoint: /chart_data/{index}/{region}/{resolution}/
-        url = f"{self.smard_base_url}/{index}/{SMARD_REGION}/{SMARD_RESOLUTION}/"
-        response = client.get(url)
-        response.raise_for_status()
+        base = self.smard_base_url  # e.g. https://www.smard.de/app/chart_data
 
-        data: dict[str, Any] = response.json()
-        series: list[list[Any]] = data.get("series", [])
+        # Step 1: get the index of available weekly files
+        index_url = f"{base}/{index}/{SMARD_REGION}/index_{SMARD_RESOLUTION}.json"
+        resp = client.get(index_url)
+        resp.raise_for_status()
+        timestamps: list[int] = resp.json().get("timestamps", [])
+        if not timestamps:
+            raise PerceptionError(
+                f"SMARD index for series {index} returned no timestamps"
+            )
+
+        # Step 2: fetch the most recent weekly data file
+        latest_ts = timestamps[-1]
+        data_url = (
+            f"{base}/{index}/{SMARD_REGION}/"
+            f"{index}_{SMARD_REGION}_{SMARD_RESOLUTION}_{latest_ts}.json"
+        )
+        resp2 = client.get(data_url)
+        resp2.raise_for_status()
+        series: list[list[Any]] = resp2.json().get("series", [])
 
         if not series:
             raise PerceptionError(
-                f"SMARD API returned empty series for index {index}"
+                f"SMARD data file for series {index} ts={latest_ts} is empty"
             )
 
         # Find the most recent non-null value
-        for timestamp_ms, value in reversed(series):
+        for _ts, value in reversed(series):
             if value is not None:
                 return float(value)
 
         raise PerceptionError(
-            f"SMARD API series for index {index} contains no non-null values"
+            f"SMARD series {index} contains no non-null values in latest file"
         )
