@@ -30,7 +30,7 @@ class AgentConfig(BaseSettings):
         default="trading-logs",
         description="S3 bucket name for decision logs",
     )
-    aws_region: str = Field(default="eu-central-1", description="AWS region")
+    aws_region: str = Field(default="us-east-1", description="AWS region")
     aws_access_key_id: str = Field(
         default="",
         description="AWS access key ID (leave empty to use ~/.aws/credentials or IAM role)",

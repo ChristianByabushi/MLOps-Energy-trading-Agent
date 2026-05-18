@@ -14,7 +14,7 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
-  AWS_REGION: "eu-central-1"
+  AWS_REGION: "us-east-1"
   ECR_REPOSITORY: "mlops-energy-trading-agent"
   LAMBDA_FUNCTION_NAME: "energy-trading-agent"
 
