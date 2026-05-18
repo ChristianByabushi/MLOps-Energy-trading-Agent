@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir \
     "pydantic-settings>=2.3" \
     "boto3>=1.34" \
     "httpx>=0.27" \
-    "python-dotenv>=1.0"
+    "python-dotenv>=1.0" \
+    "urllib3>=2.7.0"
 
 # Copy application source code
 COPY agent/ ./agent/
